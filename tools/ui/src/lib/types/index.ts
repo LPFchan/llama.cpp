@@ -58,6 +58,8 @@ export type {
 
 // Database types
 export type {
+	AgenticAttachmentPresentation,
+	DatabaseMessageExtraBase,
 	McpServerOverride,
 	DatabaseConversation,
 	DatabaseMessageExtraAudioFile,

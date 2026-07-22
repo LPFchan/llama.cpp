@@ -8,6 +8,8 @@
 	} from '$lib/utils';
 	import type { DatabaseMessageExtra } from '$lib/types';
 	import ChatMessageToolCallBlockDefault from './ChatMessageToolCallBlockDefault.svelte';
+	import ChatMessageToolCallBlockArtifactCreate from './ChatMessageToolCallBlockArtifactCreate.svelte';
+	import ChatMessageToolCallBlockArtifactEdit from './ChatMessageToolCallBlockArtifactEdit.svelte';
 	import ChatMessageToolCallBlockEditFile from './ChatMessageToolCallBlockEditFile.svelte';
 	import ChatMessageToolCallBlockExecShellCommand from './ChatMessageToolCallBlockExecShellCommand.svelte';
 	import ChatMessageToolCallBlockFileGlobSearch from './ChatMessageToolCallBlockFileGlobSearch.svelte';
@@ -64,6 +66,10 @@
 	<ChatMessageToolCallBlockRunJavascript {section} {open} {isStreaming} {onToggle} />
 {:else if section.toolName === BuiltInTool.QUESTION}
 	<ChatMessageToolCallBlockQuestion {section} {open} {isStreaming} {onToggle} />
+{:else if section.toolName === BuiltInTool.ARTIFACT_CREATE}
+	<ChatMessageToolCallBlockArtifactCreate {section} {open} {isStreaming} {onToggle} />
+{:else if section.toolName === BuiltInTool.ARTIFACT_EDIT}
+	<ChatMessageToolCallBlockArtifactEdit {section} {open} {isStreaming} {onToggle} />
 {:else}
 	<ChatMessageToolCallBlockDefault {section} {open} {isStreaming} {attachments} {onToggle} />
 {/if}

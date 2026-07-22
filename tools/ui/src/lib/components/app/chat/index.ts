@@ -664,6 +664,7 @@ export { default as ChatMessageSystem } from './ChatMessages/ChatMessage/ChatMes
  * ```
  */
 export { default as ChatScreen } from './ChatScreen/ChatScreen.svelte';
+export { default as ChatScreenArtifactPane } from './ChatScreen/ChatScreenArtifactPane.svelte';
 
 /**
  * Visual overlay displayed when user drags files over the chat screen.

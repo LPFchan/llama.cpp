@@ -34,5 +34,7 @@ export enum BuiltInTool {
 	GREP_SEARCH = 'grep_search',
 	EXEC_SHELL_COMMAND = 'exec_shell_command',
 	QUESTION = 'question',
+	ARTIFACT_CREATE = 'artifact_create',
+	ARTIFACT_EDIT = 'artifact_edit',
 	RUN_JAVASCRIPT = 'run_javascript'
 }

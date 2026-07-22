@@ -281,6 +281,8 @@ export interface ToolCallParams {
 export interface ToolExecutionResult {
 	content: string;
 	isError: boolean;
+	attachments?: import('./database').DatabaseMessageExtra[];
+	artifactId?: string;
 	awaitingUser?: {
 		kind: string;
 		requestID: string;

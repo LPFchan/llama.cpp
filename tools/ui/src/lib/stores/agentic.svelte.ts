@@ -831,6 +831,7 @@ class AgenticStore {
 				let result = '';
 				let toolSuccess = true;
 				let createdToolResultMessageId: string | null = null;
+				let explicitAttachments: DatabaseMessageExtra[] = [];
 
 				// Streaming tools (currently only exec_shell_command): mark
 				// the session so the matching renderer can switch to live mode.
@@ -909,6 +910,7 @@ class AgenticStore {
 							}
 
 							result = executionResult.content;
+							explicitAttachments = executionResult.attachments ?? [];
 
 							if (executionResult.isError) toolSuccess = false;
 						} else if (toolSource === ToolSource.FRONTEND) {
@@ -966,6 +968,7 @@ class AgenticStore {
 				}
 
 				const { cleanedResult, attachments } = this.extractBase64Attachments(result);
+				const allAttachments = [...explicitAttachments, ...attachments];
 
 				// For streaming tools the result message was created empty
 				// at the start of execution and updated in place as chunks
@@ -976,26 +979,30 @@ class AgenticStore {
 				let toolResultMessage: DatabaseMessage | undefined;
 				if (createdToolResultMessageId) {
 					toolResultMessage = { id: createdToolResultMessageId } as DatabaseMessage;
-					if (attachments.length > 0 && updateToolResultMessage) {
-						await updateToolResultMessage(createdToolResultMessageId, cleanedResult, attachments);
+					if (allAttachments.length > 0 && updateToolResultMessage) {
+						await updateToolResultMessage(
+							createdToolResultMessageId,
+							cleanedResult,
+							allAttachments
+						);
 					}
 				} else if (createToolResultMessage) {
 					toolResultMessage = await createToolResultMessage(
 						toolCall.id,
 						cleanedResult,
-						attachments.length > 0 ? attachments : undefined
+						allAttachments.length > 0 ? allAttachments : undefined
 					);
 				}
 
-				if (attachments.length > 0 && toolResultMessage) {
-					onAttachments?.(toolResultMessage.id, attachments);
+				if (allAttachments.length > 0 && toolResultMessage) {
+					onAttachments?.(toolResultMessage.id, allAttachments);
 				}
 
 				// Build content parts for session history (including images for vision models)
 				const contentParts: ApiChatMessageContentPart[] = [
 					{ type: ContentPartType.TEXT, text: cleanedResult }
 				];
-				for (const attachment of attachments) {
+				for (const attachment of allAttachments) {
 					if (attachment.type === AttachmentType.IMAGE) {
 						if (modelsStore.modelSupportsVision(effectiveModel)) {
 							contentParts.push({
