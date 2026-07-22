@@ -17,6 +17,7 @@
 	import ChatMessageToolCallBlockQuestion from './ChatMessageToolCallBlockQuestion.svelte';
 	import ChatMessageToolCallBlockRunJavascript from './ChatMessageToolCallBlockRunJavascript.svelte';
 	import ChatMessageToolCallBlockSearchResults from './ChatMessageToolCallBlockSearchResults.svelte';
+	import ChatMessageToolCallBlockTodoWrite from './ChatMessageToolCallBlockTodoWrite.svelte';
 	import ChatMessageToolCallBlockWriteFile from './ChatMessageToolCallBlockWriteFile.svelte';
 
 	interface Props {
@@ -64,6 +65,8 @@
 	<ChatMessageToolCallBlockRunJavascript {section} {open} {isStreaming} {onToggle} />
 {:else if section.toolName === BuiltInTool.QUESTION}
 	<ChatMessageToolCallBlockQuestion {section} {open} {isStreaming} {onToggle} />
+{:else if section.toolName === BuiltInTool.TODO_WRITE}
+	<ChatMessageToolCallBlockTodoWrite {section} {open} {isStreaming} {onToggle} />
 {:else}
 	<ChatMessageToolCallBlockDefault {section} {open} {isStreaming} {attachments} {onToggle} />
 {/if}

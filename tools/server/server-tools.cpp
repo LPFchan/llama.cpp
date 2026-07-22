@@ -20,6 +20,16 @@ namespace fs = std::filesystem;
 // internal helpers
 //
 
+static std::string trim_copy(const std::string & value) {
+    const auto start = value.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return "";
+    }
+
+    const auto end = value.find_last_not_of(" \t\r\n");
+    return value.substr(start, end - start + 1);
+}
+
 json server_tool::to_json() const {
     return {
         {"display_name", display_name},
@@ -1173,6 +1183,80 @@ struct server_tool_question : server_tool {
     }
 };
 
+//
+// todowrite: keep a structured todo snapshot for the conversation
+//
+
+struct server_tool_todowrite : server_tool {
+    server_tool_todowrite() {
+        name = "todowrite";
+        display_name = "Todo write";
+        permission_write = false;
+    }
+
+    json get_definition() const override {
+        return {
+            {"type", "function"},
+            {"function", {
+                {"name", name},
+                {"description", "Create or update the current task list. Use this to track multi-step work, mark progress, and keep task status current."},
+                {"parameters", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"todos", {
+                            {"type", "array"},
+                            {"description", "The updated todo list"},
+                            {"items", {
+                                {"type", "object"},
+                                {"properties", {
+                                    {"content", {{"type", "string"}}},
+                                    {"status", {{"type", "string"}, {"enum", json::array({"pending", "in_progress", "completed", "cancelled"})}}},
+                                }},
+                                {"required", json::array({"content", "status"})},
+                            }},
+                        }},
+                    }},
+                    {"required", json::array({"todos"})},
+                }},
+            }},
+        };
+    }
+
+    json invoke(json params, server_tool::stream *) const override {
+        if (!params.contains("todos") || !params.at("todos").is_array()) {
+            return {{"error", "todowrite requires a todos array"}};
+        }
+
+        static const std::unordered_set<std::string> valid_statuses = {
+            "pending", "in_progress", "completed", "cancelled",
+        };
+        json todos = json::array();
+        for (const auto & item : params.at("todos")) {
+            if (!item.is_object()) {
+                continue;
+            }
+
+            const std::string content = trim_copy(json_value(item, "content", std::string("")));
+            std::string status = trim_copy(json_value(item, "status", std::string("pending")));
+            if (content.empty()) {
+                continue;
+            }
+            if (valid_statuses.count(status) == 0) {
+                status = "pending";
+            }
+            todos.push_back({{"content", content}, {"status", status}});
+        }
+
+        if (todos.empty()) {
+            return {{"error", "todowrite requires at least one valid todo"}};
+        }
+        return {
+            {"status", "completed"},
+            {"plain_text_response", todos.dump(2)},
+        };
+    }
+};
+
 struct server_tool_stream_result : server_task_result {
     std::string chunk;
     bool done = false;
@@ -1240,6 +1324,7 @@ static std::vector<std::unique_ptr<server_tool>> build_tools() {
     tools.push_back(std::make_unique<server_tool_edit_file>());
     tools.push_back(std::make_unique<server_tool_get_datetime>());
     tools.push_back(std::make_unique<server_tool_question>());
+    tools.push_back(std::make_unique<server_tool_todowrite>());
     return tools;
 }
 
