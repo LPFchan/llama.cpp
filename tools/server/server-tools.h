@@ -6,6 +6,15 @@
 
 #include <atomic>
 #include <functional>
+#include <mutex>
+#include <unordered_map>
+
+struct server_tool_artifact_item {
+    std::string name;
+    std::string mime_type;
+    std::string base64_data;
+    std::string text_content;
+};
 
 struct server_tool {
     std::string name;
@@ -29,6 +38,8 @@ struct server_tool {
 
 struct server_tools {
     std::vector<std::unique_ptr<server_tool>> tools;
+    std::mutex artifacts_mutex;
+    std::unordered_map<std::string, server_tool_artifact_item> artifacts;
 
     // for streaming
     server_response queue_res;

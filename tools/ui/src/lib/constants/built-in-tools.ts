@@ -48,6 +48,16 @@ export const BUILTIN_TOOL_UI: Readonly<Record<BuiltInTool, BuiltinToolUiEntry>> 
 		source: ToolSource.BUILTIN
 	},
 	[BuiltInTool.QUESTION]: { icon: CircleHelp, label: 'Question', source: ToolSource.BUILTIN },
+	[BuiltInTool.ARTIFACT_CREATE]: {
+		icon: FilePlus,
+		label: 'Create artifact',
+		source: ToolSource.BUILTIN
+	},
+	[BuiltInTool.ARTIFACT_EDIT]: {
+		icon: FilePen,
+		label: 'Edit artifact',
+		source: ToolSource.BUILTIN
+	},
 	[BuiltInTool.RUN_JAVASCRIPT]: {
 		icon: Braces,
 		label: 'Run JavaScript',

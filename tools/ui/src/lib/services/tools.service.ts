@@ -49,11 +49,26 @@ export class ToolsService {
 			};
 		}
 
+		const attachments = Array.isArray(result.attachments)
+			? (result.attachments as import('$lib/types').DatabaseMessageExtra[])
+			: undefined;
+		const artifactId = typeof result.artifact_id === 'string' ? result.artifact_id : undefined;
+
 		if (ToolResponseField.PLAIN_TEXT in result) {
-			return { content: String(result[ToolResponseField.PLAIN_TEXT]), isError: false };
+			return {
+				content: String(result[ToolResponseField.PLAIN_TEXT]),
+				isError: result.is_error === true,
+				attachments,
+				artifactId
+			};
 		}
 
-		return { content: JSON.stringify(result), isError: false };
+		return {
+			content: JSON.stringify(result),
+			isError: result.is_error === true,
+			attachments,
+			artifactId
+		};
 	}
 
 	/**

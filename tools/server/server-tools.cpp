@@ -1,5 +1,7 @@
 #include "server-tools.h"
 
+#include "base64.hpp"
+
 #include <sheredom/subprocess.h>
 
 #include <filesystem>
@@ -19,6 +21,98 @@ namespace fs = std::filesystem;
 //
 // internal helpers
 //
+
+static std::string trim_copy(const std::string & value) {
+    const auto start = value.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) {
+        return "";
+    }
+
+    const auto end = value.find_last_not_of(" \t\r\n");
+    return value.substr(start, end - start + 1);
+}
+
+static std::string json_string_value_trimmed(const json & body, const std::string & key) {
+    if (!body.contains(key) || !body.at(key).is_string()) {
+        return "";
+    }
+
+    return trim_copy(body.at(key).get<std::string>());
+}
+
+static int64_t base64_size_bytes(const std::string & base64_data) {
+    size_t padding = 0;
+    if (string_ends_with(base64_data, "==")) {
+        padding = 2;
+    } else if (string_ends_with(base64_data, "=")) {
+        padding = 1;
+    }
+
+    return std::max<int64_t>(0, (int64_t) ((base64_data.size() * 3) / 4) - (int64_t) padding);
+}
+
+static std::string encode_text_base64(const std::string & text) {
+    return base64::encode(text.data(), text.size());
+}
+
+static std::string decode_text_base64(const std::string & base64_data) {
+    try {
+        return base64::decode(base64_data);
+    } catch (...) {
+        return "";
+    }
+}
+
+static json make_artifact_attachment_json(
+        const std::string & artifact_id,
+        const server_tool_artifact_item & artifact) {
+    json result = {
+        {"name", artifact.name},
+        {"size", base64_size_bytes(artifact.base64_data)},
+        {"artifactId", artifact_id},
+        {"presentation", "artifact"},
+        {"mimeType", artifact.mime_type},
+    };
+
+    if (string_starts_with(artifact.mime_type, "image/")) {
+        result["type"] = "IMAGE";
+        result["base64Url"] = "data:" + artifact.mime_type + ";base64," + artifact.base64_data;
+        return result;
+    }
+
+    if (artifact.mime_type == "application/pdf") {
+        result["type"] = "PDF";
+        result["base64Data"] = artifact.base64_data;
+        result["content"] = "";
+        result["processedAsImages"] = false;
+        return result;
+    }
+
+    if (string_starts_with(artifact.mime_type, "audio/")) {
+        result["type"] = "AUDIO";
+        result["base64Data"] = artifact.base64_data;
+        return result;
+    }
+
+    if (string_starts_with(artifact.mime_type, "video/")) {
+        result["type"] = "VIDEO";
+        result["base64Data"] = artifact.base64_data;
+        return result;
+    }
+
+    result["type"] = "TEXT";
+    result["content"] = artifact.text_content.empty()
+        ? decode_text_base64(artifact.base64_data)
+        : artifact.text_content;
+    return result;
+}
+
+static json make_tool_completed_response(const std::string & text) {
+    return {
+        {"status", "completed"},
+        {"plain_text_response", text},
+    };
+}
 
 json server_tool::to_json() const {
     return {
@@ -1164,11 +1258,159 @@ struct server_tool_question : server_tool {
                 (values.empty() ? "Unanswered" : string_join(values, ", ")) + "\"");
         }
 
+        return make_tool_completed_response(
+            "User has answered your questions: " + string_join(formatted, ", ") +
+            ". You can now continue with the user's answers in mind.");
+    }
+};
+
+//
+// artifact_create / artifact_edit: create and revise presentable file outputs
+//
+
+struct server_tool_artifact_create : server_tool {
+    server_tools & state;
+
+    explicit server_tool_artifact_create(server_tools & state) : state(state) {
+        name = "artifact_create";
+        display_name = "Artifact create";
+        permission_write = false;
+    }
+
+    json get_definition() const override {
+        return {
+            {"type", "function"},
+            {"function", {
+                {"name", name},
+                {"description", "Create a file-like artifact for content the user asked to have as a file or document."},
+                {"parameters", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"name", {{"type", "string"}}},
+                        {"mime_type", {{"type", "string"}}},
+                        {"content", {{"type", "string"}}},
+                        {"content_base64", {{"type", "string"}}},
+                    }},
+                    {"required", json::array({"name", "mime_type"})},
+                }},
+            }},
+        };
+    }
+
+    json invoke(json params, server_tool::stream *) const override {
+        const std::string artifact_name = json_string_value_trimmed(params, "name");
+        const std::string mime_type = json_string_value_trimmed(params, "mime_type");
+        const std::string content = params.contains("content") && params.at("content").is_string()
+            ? params.at("content").get<std::string>()
+            : "";
+        std::string content_base64 = json_string_value_trimmed(params, "content_base64");
+
+        if (artifact_name.empty()) {
+            return {{"error", "artifact_create requires a non-empty name"}};
+        }
+        if (mime_type.empty()) {
+            return {{"error", "artifact_create requires a non-empty mime_type"}};
+        }
+        if (content.empty() && content_base64.empty()) {
+            return {{"error", "artifact_create requires content or content_base64"}};
+        }
+        if (content_base64.empty()) {
+            content_base64 = encode_text_base64(content);
+        }
+
+        const std::string artifact_id = "artifact-" + random_string();
+        server_tool_artifact_item artifact = {
+            artifact_name,
+            mime_type,
+            content_base64,
+            content.empty() ? decode_text_base64(content_base64) : content,
+        };
+        {
+            std::lock_guard<std::mutex> lock(state.artifacts_mutex);
+            state.artifacts[artifact_id] = artifact;
+        }
+
         return {
             {"status", "completed"},
-            {"plain_text_response",
-                "User has answered your questions: " + string_join(formatted, ", ") +
-                ". You can now continue with the user's answers in mind."},
+            {"plain_text_response", "Created artifact " + artifact_id + ": " + artifact_name},
+            {"artifact_id", artifact_id},
+            {"attachments", json::array({make_artifact_attachment_json(artifact_id, artifact)})},
+        };
+    }
+};
+
+struct server_tool_artifact_edit : server_tool {
+    server_tools & state;
+
+    explicit server_tool_artifact_edit(server_tools & state) : state(state) {
+        name = "artifact_edit";
+        display_name = "Artifact edit";
+        permission_write = false;
+    }
+
+    json get_definition() const override {
+        return {
+            {"type", "function"},
+            {"function", {
+                {"name", name},
+                {"description", "Edit an existing artifact by artifact_id. Provide replacement content or content_base64 and optionally a new name or MIME type."},
+                {"parameters", {
+                    {"type", "object"},
+                    {"properties", {
+                        {"artifact_id", {{"type", "string"}}},
+                        {"name", {{"type", "string"}}},
+                        {"mime_type", {{"type", "string"}}},
+                        {"content", {{"type", "string"}}},
+                        {"content_base64", {{"type", "string"}}},
+                    }},
+                    {"required", json::array({"artifact_id"})},
+                }},
+            }},
+        };
+    }
+
+    json invoke(json params, server_tool::stream *) const override {
+        const std::string artifact_id = json_string_value_trimmed(params, "artifact_id");
+        if (artifact_id.empty()) {
+            return {{"error", "artifact_edit requires a non-empty artifact_id"}};
+        }
+
+        std::lock_guard<std::mutex> lock(state.artifacts_mutex);
+        auto artifact_it = state.artifacts.find(artifact_id);
+        if (artifact_it == state.artifacts.end()) {
+            return {{"error", "Artifact not found: " + artifact_id}};
+        }
+
+        server_tool_artifact_item artifact = artifact_it->second;
+        const std::string updated_name = json_string_value_trimmed(params, "name");
+        const std::string updated_mime_type = json_string_value_trimmed(params, "mime_type");
+        const std::string updated_content = params.contains("content") && params.at("content").is_string()
+            ? params.at("content").get<std::string>()
+            : "";
+        const std::string updated_content_base64 = json_string_value_trimmed(params, "content_base64");
+
+        if (!updated_name.empty()) {
+            artifact.name = updated_name;
+        }
+        if (!updated_mime_type.empty()) {
+            artifact.mime_type = updated_mime_type;
+        }
+        if (!updated_content_base64.empty()) {
+            artifact.base64_data = updated_content_base64;
+            artifact.text_content = updated_content.empty()
+                ? decode_text_base64(updated_content_base64)
+                : updated_content;
+        } else if (!updated_content.empty()) {
+            artifact.text_content = updated_content;
+            artifact.base64_data = encode_text_base64(updated_content);
+        }
+
+        artifact_it->second = artifact;
+        return {
+            {"status", "completed"},
+            {"plain_text_response", "Edited artifact " + artifact_id + ": " + artifact.name},
+            {"artifact_id", artifact_id},
+            {"attachments", json::array({make_artifact_attachment_json(artifact_id, artifact)})},
         };
     }
 };
@@ -1230,7 +1472,7 @@ static server_tool & find_tool(std::vector<std::unique_ptr<server_tool>> & tools
 // public API
 //
 
-static std::vector<std::unique_ptr<server_tool>> build_tools() {
+static std::vector<std::unique_ptr<server_tool>> build_tools(server_tools & state) {
     std::vector<std::unique_ptr<server_tool>> tools;
     tools.push_back(std::make_unique<server_tool_read_file>());
     tools.push_back(std::make_unique<server_tool_file_glob_search>());
@@ -1240,13 +1482,15 @@ static std::vector<std::unique_ptr<server_tool>> build_tools() {
     tools.push_back(std::make_unique<server_tool_edit_file>());
     tools.push_back(std::make_unique<server_tool_get_datetime>());
     tools.push_back(std::make_unique<server_tool_question>());
+    tools.push_back(std::make_unique<server_tool_artifact_create>(state));
+    tools.push_back(std::make_unique<server_tool_artifact_edit>(state));
     return tools;
 }
 
 void server_tools::setup(const std::vector<std::string> & enabled_tools) {
     if (!enabled_tools.empty()) {
         std::unordered_set<std::string> enabled_set(enabled_tools.begin(), enabled_tools.end());
-        auto all_tools = build_tools();
+        auto all_tools = build_tools(*this);
 
         // collect all known tool names for validation
         std::vector<std::string> known_names;
