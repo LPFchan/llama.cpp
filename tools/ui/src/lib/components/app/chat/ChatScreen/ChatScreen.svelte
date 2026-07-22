@@ -5,6 +5,7 @@
 		ChatMessages,
 		ChatScreenDragOverlay,
 		ChatScreenStreamResumeStatus,
+		ChatScreenArtifactPane,
 		ServerLoadingSplash,
 		ChatScreenServerError
 	} from '$lib/components/app';
@@ -30,6 +31,8 @@
 	} from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 	import { serverLoading, serverError } from '$lib/stores/server.svelte';
+	import type { DatabaseMessageExtra } from '$lib/types';
+	import { getArtifactAttachmentKey, getArtifactAttachments } from '$lib/utils/agentic-artifact';
 	import { parseFilesToMessageExtras } from '$lib/utils/browser-only';
 	import { onDestroy, onMount } from 'svelte';
 	import ChatScreenGreeting from './ChatScreenGreeting.svelte';
@@ -47,6 +50,12 @@
 	let initialMessage = $state('');
 	let showDeleteDialog = $state(false);
 	let showEmptyFileDialog = $state(false);
+	let dismissedArtifactKey = $state<string | null>(null);
+	let lastAutoPresentedArtifactKey = $state<string | null>(null);
+	let selectedArtifact = $state<{
+		key: string;
+		attachment: DatabaseMessageExtra;
+	} | null>(null);
 	let isEmpty = $derived(
 		showCenteredEmpty && !activeConversation() && activeMessages().length === 0 && !isLoading()
 	);
@@ -54,6 +63,25 @@
 	let isServerLoading = $derived(serverLoading());
 	let hasPropsError = $derived(!!serverError());
 	let isCurrentConversationLoading = $derived(isLoading() || isChatStreaming());
+	let latestPresentedArtifact = $derived.by(() => {
+		const messages = activeMessages();
+
+		for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+			const message = messages[messageIndex];
+			const artifacts = getArtifactAttachments(message.extra ?? []);
+
+			if (artifacts.length > 0) {
+				const attachment = artifacts[artifacts.length - 1];
+				return {
+					key: getArtifactAttachmentKey(message.id, attachment, artifacts.length - 1),
+					attachment
+				};
+			}
+		}
+
+		return null;
+	});
+	let artifactPaneOpen = $derived(selectedArtifact !== null);
 	let chatFormBottomPosition = $derived.by(() => {
 		if (!isMobile.current) return '1rem';
 		if (device.isStandalone) return '1.5rem';
@@ -183,6 +211,19 @@
 		await chatStore.addSystemPrompt();
 	}
 
+	function handleArtifactOpen(event: Event) {
+		const detail = (
+			event as CustomEvent<{
+				key: string;
+				attachment: DatabaseMessageExtra;
+			}>
+		).detail;
+		if (!detail?.key || !detail.attachment) return;
+
+		selectedArtifact = detail;
+		dismissedArtifactKey = null;
+	}
+
 	$effect(() => {
 		const shouldDisableAutoScroll =
 			config().disableAutoScroll || (isMobile.current && isCurrentConversationLoading);
@@ -192,7 +233,26 @@
 		}
 	});
 
+	$effect(() => {
+		if (!latestPresentedArtifact) {
+			selectedArtifact = null;
+			dismissedArtifactKey = null;
+			lastAutoPresentedArtifactKey = null;
+			return;
+		}
+
+		if (
+			latestPresentedArtifact.key !== dismissedArtifactKey &&
+			latestPresentedArtifact.key !== lastAutoPresentedArtifactKey
+		) {
+			selectedArtifact = latestPresentedArtifact;
+			lastAutoPresentedArtifactKey = latestPresentedArtifact.key;
+		}
+	});
+
 	onMount(() => {
+		window.addEventListener('agentic-artifact-open', handleArtifactOpen);
+
 		const pendingDraft = chatStore.consumePendingDraft();
 		if (pendingDraft) {
 			initialMessage = pendingDraft.message;
@@ -213,7 +273,10 @@
 		handleMobileScroll();
 	});
 
-	onDestroy(() => autoScroll.destroy());
+	onDestroy(() => {
+		window.removeEventListener('agentic-artifact-open', handleArtifactOpen);
+		autoScroll.destroy();
+	});
 </script>
 
 {#if dragAndDrop.isDragOver}
@@ -234,69 +297,88 @@
 {#if isServerLoading}
 	<ServerLoadingSplash />
 {:else}
-	<div
-		class="chat-screen flex grow flex-col min-h-[calc(100dvh-1rem)] md:min-h-full px-4 md:py-0 pt-12 pb-48 md:pb-4"
-		style:--chat-form-bottom-position={chatFormBottomPosition}
-		ondragenter={dragAndDrop.dragHandlers.dragenter}
-		ondragleave={dragAndDrop.dragHandlers.dragleave}
-		ondragover={dragAndDrop.dragHandlers.dragover}
-		ondrop={dragAndDrop.dragHandlers.drop}
-		role="main"
-	>
-		{#if !isEmpty}
-			<ChatMessages
-				messages={activeMessages()}
-				onUserAction={() => {
-					handleSendLikeScroll();
-				}}
-			/>
-		{/if}
-
+	<div class="flex min-w-0 items-start">
 		<div
-			class={[
-				'pointer-events-none md:sticky fixed  mt-auto transition-all duration-200',
-				device.isStandalone
-					? 'bottom-6 right-4 left-4'
-					: device.isIOSSafari
-						? 'bottom-1 left-2 right-2'
-						: 'bottom-2 right-2 left-2',
-				isEmpty ? 'md:bottom-[calc(50dvh-7rem)] 2xl:bottom-[calc(50dvh-4rem)]' : 'md:bottom-4'
-			]}
-			style:padding-top={!isEmpty ? 'var(--chat-form-padding-top)' : undefined}
+			class="chat-screen flex min-h-[calc(100dvh-1rem)] min-w-0 grow basis-full flex-col px-4 pb-48 pt-12 transition-[flex-basis] duration-300 ease-out md:min-h-full md:py-0 md:pb-4 {artifactPaneOpen
+				? 'md:basis-1/2'
+				: 'md:basis-full'}"
+			style:--chat-form-bottom-position={chatFormBottomPosition}
+			ondragenter={dragAndDrop.dragHandlers.dragenter}
+			ondragleave={dragAndDrop.dragHandlers.dragleave}
+			ondragover={dragAndDrop.dragHandlers.dragover}
+			ondrop={dragAndDrop.dragHandlers.drop}
+			role="main"
 		>
-			<ChatScreenGreeting {isEmpty} />
-
-			<ChatScreenServerError />
-
-			{#if page.params.id}
-				<ChatScreenStreamResumeStatus />
+			{#if !isEmpty}
+				<ChatMessages
+					messages={activeMessages()}
+					onUserAction={() => {
+						handleSendLikeScroll();
+					}}
+				/>
 			{/if}
 
-			<div class="pointer-events-none flex flex-col gap-6 items-center w-full">
-				{#if (isMobile.current ? mobileScrollDownHint || isMobileUserScrolledUp : autoScroll.userScrolledUp) && page.url.hash.includes(ROUTES.CHAT) && page.params.id}
-					<ChatScreenActionScrollDown
-						onclick={() => {
-							mobileScrollDownHint = false;
-							scroll.chatScrollContainer?.scrollTo({
-								top: scroll.chatScrollContainer.scrollHeight,
-								behavior: 'smooth'
-							});
-						}}
-					/>
-				{/if}
-			</div>
+			<div
+				class={[
+					'pointer-events-none fixed mt-auto transition-all duration-200 md:sticky',
+					device.isStandalone
+						? 'bottom-6 left-4 right-4'
+						: device.isIOSSafari
+							? 'bottom-1 left-2 right-2'
+							: 'bottom-2 left-2 right-2',
+					isEmpty ? 'md:bottom-[calc(50dvh-7rem)] 2xl:bottom-[calc(50dvh-4rem)]' : 'md:bottom-4'
+				]}
+				style:padding-top={!isEmpty ? 'var(--chat-form-padding-top)' : undefined}
+			>
+				<ChatScreenGreeting {isEmpty} />
 
-			<ChatScreenForm
-				class="pointer-events-auto conversation-chat-form"
-				disabled={hasPropsError || isEditing()}
-				{initialMessage}
-				isLoading={isCurrentConversationLoading}
-				onFileRemove={fileUpload.handleFileRemove}
-				onFileUpload={fileUpload.handleFileUpload}
-				onSend={handleSendMessage}
-				onStop={() => chatStore.stopGeneration()}
-				onSystemPromptAdd={handleSystemPromptAdd}
-				bind:uploadedFiles={fileUpload.uploadedFiles}
+				<ChatScreenServerError />
+
+				{#if page.params.id}
+					<ChatScreenStreamResumeStatus />
+				{/if}
+
+				<div class="pointer-events-none flex w-full flex-col items-center gap-6">
+					{#if (isMobile.current ? mobileScrollDownHint || isMobileUserScrolledUp : autoScroll.userScrolledUp) && page.url.hash.includes(ROUTES.CHAT) && page.params.id}
+						<ChatScreenActionScrollDown
+							onclick={() => {
+								mobileScrollDownHint = false;
+								scroll.chatScrollContainer?.scrollTo({
+									top: scroll.chatScrollContainer.scrollHeight,
+									behavior: 'smooth'
+								});
+							}}
+						/>
+					{/if}
+				</div>
+
+				<ChatScreenForm
+					class="conversation-chat-form pointer-events-auto"
+					disabled={hasPropsError || isEditing()}
+					{initialMessage}
+					isLoading={isCurrentConversationLoading}
+					onFileRemove={fileUpload.handleFileRemove}
+					onFileUpload={fileUpload.handleFileUpload}
+					onSend={handleSendMessage}
+					onStop={() => chatStore.stopGeneration()}
+					onSystemPromptAdd={handleSystemPromptAdd}
+					bind:uploadedFiles={fileUpload.uploadedFiles}
+				/>
+			</div>
+		</div>
+
+		<div
+			class="fixed inset-0 z-20 min-w-0 overflow-hidden transition-[opacity,transform] duration-300 ease-out md:sticky md:inset-auto md:top-0 md:z-auto md:h-dvh md:shrink-0 {artifactPaneOpen
+				? 'translate-x-0 opacity-100 md:basis-1/2'
+				: 'pointer-events-none translate-x-4 opacity-0 md:basis-0'}"
+			aria-hidden={!artifactPaneOpen}
+		>
+			<ChatScreenArtifactPane
+				attachment={selectedArtifact?.attachment ?? null}
+				onClose={() => {
+					if (selectedArtifact) dismissedArtifactKey = selectedArtifact.key;
+					selectedArtifact = null;
+				}}
 			/>
 		</div>
 	</div>
