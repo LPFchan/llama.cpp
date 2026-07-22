@@ -16,6 +16,7 @@ import {
 	FilePlus,
 	FileSearch,
 	FileText,
+	ListTodo,
 	SearchCode,
 	Terminal
 } from '@lucide/svelte';
@@ -48,6 +49,7 @@ export const BUILTIN_TOOL_UI: Readonly<Record<BuiltInTool, BuiltinToolUiEntry>> 
 		source: ToolSource.BUILTIN
 	},
 	[BuiltInTool.QUESTION]: { icon: CircleHelp, label: 'Question', source: ToolSource.BUILTIN },
+	[BuiltInTool.TODO_WRITE]: { icon: ListTodo, label: 'Update todos', source: ToolSource.BUILTIN },
 	[BuiltInTool.RUN_JAVASCRIPT]: {
 		icon: Braces,
 		label: 'Run JavaScript',

@@ -104,3 +104,27 @@ Slice Q replaces:
 - `tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessage/ChatMessageToolCall/ChatMessageToolCallBlockQuestion.svelte`
 - `tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessage/ChatMessageToolCall/parsers/question.ts`
 - `tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessageActions/ChatMessageActionCard/ChatMessageActionCardQuestionRequest.svelte`
+
+## todowrite
+
+Enum value:
+
+```ts
+BuiltInTool.TODO_WRITE = 'todowrite'
+```
+
+Completed result:
+
+```json
+{
+  "status": "completed",
+  "plain_text_response": "[\n  {\n    \"content\": \"Task text\",\n    \"status\": \"pending\"\n  }\n]"
+}
+```
+
+The `plain_text_response` string is a JSON array. Valid statuses are `pending`, `in_progress`, `completed`, and `cancelled`. Validation failures return `{"error":"<message>"}`.
+
+Slice T replaces:
+
+- `tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessage/ChatMessageToolCall/ChatMessageToolCallBlockTodoWrite.svelte`
+- `tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessage/ChatMessageToolCall/parsers/todo-write.ts`

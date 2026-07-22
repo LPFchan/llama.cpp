@@ -34,5 +34,6 @@ export enum BuiltInTool {
 	GREP_SEARCH = 'grep_search',
 	EXEC_SHELL_COMMAND = 'exec_shell_command',
 	QUESTION = 'question',
+	TODO_WRITE = 'todowrite',
 	RUN_JAVASCRIPT = 'run_javascript'
 }
